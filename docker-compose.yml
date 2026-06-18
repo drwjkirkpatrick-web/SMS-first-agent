@@ -1,0 +1,85 @@
+# SMS-First Agent — Docker Compose
+# ═══════════════════════════════════════════════════
+# Services:
+#   app      — FastAPI web server (API + webhooks)
+#   worker   — Celery worker (sends, reconciliation, inbound, campaigns)
+#   beat     — Celery Beat scheduler (daily reminders, periodic tasks)
+#   db       — PostgreSQL 16 (local on Pi for offline-first)
+#   redis    — Redis (Celery broker + cache)
+# ═══════════════════════════════════════════════════
+
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: always
+    networks:
+      - sms-net
+
+  worker:
+    build: .
+    command: celery -A workers.celery_app worker --loglevel=info --concurrency=2
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: always
+    networks:
+      - sms-net
+
+  beat:
+    build: .
+    command: celery -A workers.celery_app beat --loglevel=info
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: always
+    networks:
+      - sms-net
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: sms_first_agent
+      POSTGRES_USER: sms_agent
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme_secure}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sms_agent"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+    networks:
+      - sms-net
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --save "" --maxmemory 64mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+    networks:
+      - sms-net
+
+volumes:
+  pgdata:
+
+networks:
+  sms-net:

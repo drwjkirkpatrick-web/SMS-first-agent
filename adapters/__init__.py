@@ -1,0 +1,1 @@
+# adapters package — SMS provider and data-source adapters for the SMS-First Agent.
