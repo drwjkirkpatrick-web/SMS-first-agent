@@ -26,12 +26,11 @@ class TestEnglishTemplates:
 
     def test_reminder_due_14_english(self):
         body = self.renderer.render("reminder_due_14", {
-            "guardian_name": "John",
-            "school_name": "Mama Mboga Shop",
-            "student_name": "Mary",
+            "contact_name": "John",
+            "business_name": "Mama Mboga Shop",
             "amount_due": "1500",
             "due_date": "2024-01-29",
-        }, force_language="en")
+        }, language="en")
         assert "John" in body
         assert "Mama Mboga Shop" in body
         assert "1500" in body
@@ -39,12 +38,13 @@ class TestEnglishTemplates:
 
     def test_payment_confirmed_english(self):
         body = self.renderer.render("payment_confirmed", {
-            "guardian_name": "Jane",
-            "school_name": "Test Shop",
+            "contact_name": "Jane",
+            "business_name": "Test Shop",
             "amount_paid": "500",
-            "student_name": "Mary",
             "balance": "1000",
-        }, force_language="en")
+            "payment_method": "M-Pesa",
+            "mpesa_ref": "SI7K2P9X4",
+        }, language="en")
         assert "Jane" in body
         assert "500" in body
 
@@ -57,12 +57,11 @@ class TestSwahiliTemplates:
 
     def test_reminder_due_14_swahili(self):
         body = self.renderer.render("reminder_due_14", {
-            "guardian_name": "John",
-            "school_name": "Duka La Mama",
-            "student_name": "Mary",
+            "contact_name": "John",
+            "business_name": "Duka La Mama",
             "amount_due": "1500",
             "due_date": "2024-01-29",
-        }, force_language="sw")
+        }, language="sw")
         assert "John" in body
         # Swahili should contain "ukumbusho" (reminder) or "tarehe" (date)
         # or "kipindi" — depends on translation used
@@ -99,9 +98,9 @@ class TestMissingPlaceholders:
 
     def test_missing_placeholder_filled_with_empty(self):
         body = self.renderer.render("reminder_due_14", {
-            "guardian_name": "John",
-            "school_name": "Shop",
-            # missing: student_name, amount_due, due_date
+            "contact_name": "John",
+            "business_name": "Shop",
+            # missing: amount_due, due_date
         })
         # Should not raise, just have empty strings where missing
         assert "John" in body

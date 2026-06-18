@@ -46,8 +46,9 @@ Kenya-specific considerations:
 from datetime import datetime, timedelta
 from typing import Optional
 
+import hmac
+
 from fastapi import APIRouter, Depends, Header, HTTPException, status
-from passlib.hash import bcrypt
 from sqlalchemy import func, select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -73,28 +74,26 @@ async def verify_admin_token(x_admin_token: Optional[str] = Header(None)) -> Non
     """
     Verify the admin token from X-Admin-Token header.
 
-    Compares the provided token against the bcrypt hash stored in
-    ADMIN_TOKEN_HASH. Uses passlib's bcrypt.verify() for constant-time
-    comparison (prevents timing attacks).
+    Uses hmac.compare_digest() for constant-time comparison (prevents
+    timing attacks). The admin token is stored in the ADMIN_TOKEN env var.
 
-    Teaching note: We use bcrypt hashing (not plaintext comparison)
-    so the token isn't stored in the settings file in plaintext.
-    The admin generates a token, hashes it, and stores the hash.
-    Each request includes the plaintext token in the header; we
-    verify it against the hash.
+    Teaching note: For a small business deployment on a Pi, a plaintext
+    token in the environment is sufficient. For multi-tenant or cloud
+    deployments, upgrade to JWT or bcrypt-hashed tokens.
     """
     settings = get_settings()
-    if not settings.admin_token_hash:
+    expected = getattr(settings, "admin_token", None)
+    if not expected:
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail="Admin auth not configured (set ADMIN_TOKEN_HASH)",
+            detail="Admin auth not configured (set ADMIN_TOKEN)",
         )
     if not x_admin_token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing X-Admin-Token header",
         )
-    if not bcrypt.verify(x_admin_token, settings.admin_token_hash):
+    if not hmac.compare_digest(x_admin_token, expected):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid admin token",

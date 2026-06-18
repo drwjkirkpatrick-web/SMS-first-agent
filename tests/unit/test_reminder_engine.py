@@ -26,10 +26,10 @@ import pytest
 from domain.models import (
     Business,
     Contact,
-    Invoice,
-    InvoiceStatus,
     ReminderType,
     Transaction,
+    TransactionStatus,
+    TransactionType,
 )
 from domain.reminder_service import ReminderService
 
@@ -99,13 +99,13 @@ class TestReminderEligibility:
 
     def test_no_reminder_for_paid_invoice(self):
         """Paid invoices should not generate any candidates."""
-        invoice = _make_invoice(due_date=self.today + timedelta(days=14), status=InvoiceStatus.PAID)
+        invoice = _make_invoice(due_date=self.today + timedelta(days=14), status=TransactionStatus.PAID)
         school = _make_business()
         candidates = self.service.build_candidates(school, [invoice], today=self.today)
         assert len(candidates) == 0
 
     def test_no_reminder_for_cancelled_invoice(self):
-        invoice = _make_invoice(due_date=self.today + timedelta(days=14), status=InvoiceStatus.CANCELLED)
+        invoice = _make_invoice(due_date=self.today + timedelta(days=14), status=TransactionStatus.CANCELLED)
         school = _make_business()
         candidates = self.service.build_candidates(school, [invoice], today=self.today)
         assert len(candidates) == 0
@@ -123,7 +123,7 @@ class TestLateNotice:
         assert self.service.is_late_notice_eligible(invoice, self.today)
 
     def test_no_late_notice_for_paid_invoice(self):
-        invoice = _make_invoice(due_date=self.today - timedelta(days=5), status=InvoiceStatus.PAID)
+        invoice = _make_invoice(due_date=self.today - timedelta(days=5), status=TransactionStatus.PAID)
         assert not self.service.is_late_notice_eligible(invoice, self.today)
 
     def test_no_late_notice_for_future_invoice(self):
@@ -143,25 +143,25 @@ class TestSuppression:
         self.service = ReminderService()
 
     def test_suppress_paid_invoice(self):
-        invoice = _make_invoice(status=InvoiceStatus.PAID)
+        invoice = _make_invoice(status=TransactionStatus.PAID)
         contact = _make_contact()
         suppressed, reason = self.service.should_suppress(invoice, contact)
         assert suppressed
-        assert reason == "invoice_paid"
+        assert reason == "transaction_paid"
 
     def test_suppress_cancelled_invoice(self):
-        invoice = _make_invoice(status=InvoiceStatus.CANCELLED)
+        invoice = _make_invoice(status=TransactionStatus.CANCELLED)
         contact = _make_contact()
         suppressed, reason = self.service.should_suppress(invoice, contact)
         assert suppressed
-        assert reason == "invoice_cancelled"
+        assert reason == "transaction_cancelled"
 
     def test_suppress_opted_out_contact(self):
         invoice = _make_invoice()
         contact = _make_contact(sms_opt_in=False)
         suppressed, reason = self.service.should_suppress(invoice, contact)
         assert suppressed
-        assert reason == "guardian_opted_out"
+        assert reason == "contact_opted_out"
 
     def test_no_suppress_for_active_invoice_opted_in(self):
         invoice = _make_invoice()
@@ -208,7 +208,7 @@ def _make_business(business_id=1, name="Test Shop") -> Business:
 def _make_contact(contact_id=201, sms_opt_in=True) -> Contact:
     return Contact(
         id=contact_id,
-        school_id=1,
+        business_id=1,
         first_name="Jane",
         phone="+254****5678",
         sms_opt_in=sms_opt_in,
@@ -218,15 +218,16 @@ def _make_contact(contact_id=201, sms_opt_in=True) -> Contact:
 def _make_invoice(
     invoice_id=1001,
     due_date=None,
-    status=InvoiceStatus.PENDING,
+    status=TransactionStatus.PENDING,
     amount_due=1500.00,
 ) -> Transaction:
     return Transaction(
         id=invoice_id,
-        school_id=1,
-        student_id=101,
-        guardian_id=201,
-        invoice_number=f"INV-{invoice_id}",
+        business_id=1,
+        customer_id=101,
+        contact_id=201,
+        transaction_number=f"INV-{invoice_id}",
+        type=TransactionType.CREDIT,
         amount_due=Decimal(str(amount_due)),
         amount_paid=Decimal("0.00"),
         due_date=due_date or date(2024, 1, 29),

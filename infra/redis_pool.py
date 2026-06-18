@@ -23,7 +23,7 @@ Teaching notes:
 import redis.asyncio as redis
 from infra.settings import get_settings
 
-# Module-level pool (one per process)
+# Module-level pool — lazily created on first access
 _redis_client: redis.Redis | None = None
 
 
@@ -43,8 +43,24 @@ def get_redis_client() -> redis.Redis:
     return _redis_client
 
 
-# Convenience alias
-redis_client = get_redis_client()
+# ── FastAPI lifecycle helpers ──
+
+async def ping_redis() -> None:
+    """Called on FastAPI startup — verifies Redis connectivity."""
+    if not await check_redis_connection():
+        import logging
+        logging.getLogger(__name__).warning("Redis not reachable on startup")
+    else:
+        import logging
+        logging.getLogger(__name__).info("Redis connected")
+
+
+async def close_redis() -> None:
+    """Called on FastAPI shutdown — closes Redis connection pool."""
+    global _redis_client
+    if _redis_client is not None:
+        await _redis_client.aclose()
+        _redis_client = None
 
 
 async def check_redis_connection() -> bool:

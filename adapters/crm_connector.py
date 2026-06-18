@@ -113,9 +113,9 @@ class TransactionRecord:
 @dataclass
 class PaymentRecord:
     """Normalized payment data from any CRM/POS (unchanged from original)."""
-    external_payment_id: Optional[str] = None
     external_transaction_id: str
     amount: float
+    external_payment_id: Optional[str] = None
     payment_method: Optional[str] = None  # "mpesa", "cash", "card", "bank"
     paid_at: Optional[str] = None  # ISO 8601 datetime
 

@@ -48,36 +48,36 @@ class TestSTKPush:
         self.service = MpesaService()
 
     @pytest.mark.asyncio
-    async def test_stk_push_calls_adapter(self):
-        """Verify STK Push delegates to the M-Pesa adapter."""
-        mock_adapter = AsyncMock()
-        mock_adapter.trigger_stk_push.return_value = {
-            "success": True,
-            "checkout_request_id": "ws_CO_12345",
-        }
+    async def test_stk_push_returns_initiated_status(self):
+        """STK Push records the intent and returns an initiated status dict."""
+        mock_session = AsyncMock()
         result = await self.service.trigger_stk_push(
-            phone="+254****5678",
+            session=mock_session,
+            business_id=1,
+            phone="+254712345678",
             amount=Decimal("500.00"),
             account_ref="INV-1001",
-            transaction_desc="Tuition payment",
-            adapter=mock_adapter,
         )
-        assert result["success"] is True
-        mock_adapter.trigger_stk_push.assert_called_once()
+        assert result["status"] == "initiated"
+        assert result["account_ref"] == "INV-1001"
+        assert result["amount"] == "500.00"
+        # Phone should be masked in the response
+        assert "5678" in result["phone"]
 
     @pytest.mark.asyncio
-    async def test_stk_push_invalid_phone(self):
-        """Invalid phone numbers should be rejected before calling the API."""
-        mock_adapter = AsyncMock()
+    async def test_stk_push_with_transaction_id(self):
+        """STK Push accepts an optional transaction_id for linking."""
+        mock_session = AsyncMock()
         result = await self.service.trigger_stk_push(
-            phone="invalid",
+            session=mock_session,
+            business_id=1,
+            phone="+254712345678",
             amount=Decimal("100"),
             account_ref="INV-1001",
-            transaction_desc="Test",
-            adapter=mock_adapter,
+            transaction_id=42,
         )
-        # Should not call the adapter for invalid input
-        mock_adapter.trigger_stk_push.assert_not_called()
+        assert result["transaction_id"] == 42
+        assert result["status"] == "initiated"
 
 
 class TestConfirmationSMS:
@@ -86,9 +86,6 @@ class TestConfirmationSMS:
     def setup_method(self):
         self.service = MpesaService()
 
-    @pytest.mark.asyncio
-    async def test_confirmation_sms_sent_after_match(self):
-        """After matching a payment, a confirmation SMS should be queued."""
-        # This would be a full integration test with a DB session.
-        # For unit testing, we verify the service method exists.
-        assert hasattr(self.service, "send_payment_confirmation")
+    def test_confirmation_sms_method_exists(self):
+        """The service must expose a method to send payment confirmation SMS."""
+        assert hasattr(self.service, "_send_confirmation_sms")

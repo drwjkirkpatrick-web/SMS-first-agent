@@ -18,6 +18,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from domain.campaign_service import CampaignService
+from domain.models import Campaign, CampaignStatus
 
 
 class TestCampaignCandidates:
@@ -31,26 +32,26 @@ class TestCampaignCandidates:
 
     def test_message_key_includes_campaign_id(self):
         """Campaign message keys must include campaign_id for dedup."""
-        key = self.service.compute_campaign_key(
+        key = self.service.compute_campaign_message_key(
             business_id=1,
-            contact_id=201,
             campaign_id=500,
-            date_str="2024-01-15",
+            customer_id=201,
+            send_date=date(2024, 1, 15),
         )
         assert "500" in key  # campaign_id is in the key
         parts = key.split(":")
-        assert len(parts) >= 4  # business:contact:campaign:date
+        assert len(parts) >= 4  # business:campaign:promo:customer:date
 
     def test_different_campaigns_different_keys(self):
         """Same customer, different campaigns → different keys (no cross-campaign dedup)."""
-        key1 = self.service.compute_campaign_key(1, 201, 500, "2024-01-15")
-        key2 = self.service.compute_campaign_key(1, 201, 501, "2024-01-15")
+        key1 = self.service.compute_campaign_message_key(1, 500, 201, date(2024, 1, 15))
+        key2 = self.service.compute_campaign_message_key(1, 501, 201, date(2024, 1, 15))
         assert key1 != key2
 
     def test_same_campaign_same_day_same_key(self):
         """Same customer, same campaign, same day → same key (dedup works)."""
-        key1 = self.service.compute_campaign_key(1, 201, 500, "2024-01-15")
-        key2 = self.service.compute_campaign_key(1, 201, 500, "2024-01-15")
+        key1 = self.service.compute_campaign_message_key(1, 500, 201, date(2024, 1, 15))
+        key2 = self.service.compute_campaign_message_key(1, 500, 201, date(2024, 1, 15))
         assert key1 == key2
 
 
@@ -60,16 +61,56 @@ class TestFrequencyCap:
     def setup_method(self):
         self.service = CampaignService()
 
-    def test_frequency_cap_excludes_over_limit(self):
-        """If customer already received max promos this week, skip them."""
-        # This would need a DB session to test fully.
-        # Unit test verifies the method exists and is callable.
-        assert hasattr(self.service, "check_frequency_cap")
+    def test_frequency_cap_method_exists(self):
+        """The service must expose a frequency-cap enforcement method."""
+        assert hasattr(self.service, "enforce_frequency_cap")
 
 
 class TestCampaignStatus:
     """Test that campaign status affects candidate generation."""
 
+    def setup_method(self):
+        self.service = CampaignService()
+
+    def _make_campaign(self, status: CampaignStatus) -> Campaign:
+        """Helper: build a Campaign with the given status."""
+        return Campaign(
+            business_id=1,
+            segment_id=1,
+            name="Test Campaign",
+            template_name="promo_message",
+            status=status,
+            schedule_start=datetime(2024, 1, 1),
+            schedule_end=None,
+            max_per_customer_per_week=3,
+        )
+
     def test_paused_campaign_no_candidates(self):
-        """A paused campaign should not generate any candidates."""
-        assert hasattr(self.service, "is_campaign_active")
+        """A paused campaign should not be considered active."""
+        campaign = self._make_campaign(CampaignStatus.PAUSED)
+        assert self.service.is_campaign_active(campaign) is False
+
+    def test_completed_campaign_no_candidates(self):
+        """A completed campaign should not be considered active."""
+        campaign = self._make_campaign(CampaignStatus.COMPLETED)
+        assert self.service.is_campaign_active(campaign) is False
+
+    def test_cancelled_campaign_no_candidates(self):
+        """A cancelled campaign should not be considered active."""
+        campaign = self._make_campaign(CampaignStatus.CANCELLED)
+        assert self.service.is_campaign_active(campaign) is False
+
+    def test_running_campaign_is_active(self):
+        """A running campaign should be considered active."""
+        campaign = self._make_campaign(CampaignStatus.RUNNING)
+        assert self.service.is_campaign_active(campaign) is True
+
+    def test_scheduled_campaign_is_active(self):
+        """A scheduled campaign should be considered active."""
+        campaign = self._make_campaign(CampaignStatus.SCHEDULED)
+        assert self.service.is_campaign_active(campaign) is True
+
+    def test_draft_campaign_is_active(self):
+        """A draft campaign should be considered active."""
+        campaign = self._make_campaign(CampaignStatus.DRAFT)
+        assert self.service.is_campaign_active(campaign) is True

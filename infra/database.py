@@ -45,8 +45,18 @@ class Base(DeclarativeBase):
 def _build_engine():
     """Create the async engine with settings from environment."""
     settings = get_settings()
+    url = settings.database_url.get_secret_value()
+
+    # SQLite (for tests) doesn't support pool_size/max_overflow
+    if url.startswith("sqlite"):
+        return create_async_engine(
+            url,
+            echo=settings.app_env == "development",
+        )
+
+    # PostgreSQL (production) — connection pooling tuned for ARM64
     return create_async_engine(
-        settings.database_url.get_secret_value(),
+        url,
         pool_size=5,
         max_overflow=5,
         pool_pre_ping=True,       # critical for unreliable networks
@@ -80,9 +90,51 @@ def get_session_factory() -> async_sessionmaker[AsyncSession]:
     return _async_session_factory
 
 
-# Convenience alias used throughout the codebase
+# Convenience: lazy session factory wrapper.
+# We can't create the real factory at import time because DATABASE_URL
+# might not be set yet (tests set it in conftest before importing).
 # Usage: `async with async_session_factory() as session:`
-async_session_factory = get_session_factory()
+
+
+class _LazySessionFactory:
+    """Lazy proxy that creates the real session factory on first use."""
+    _real = None
+
+    def _get(self):
+        if self._real is None:
+            self._real = get_session_factory()
+        return self._real
+
+    def __call__(self):
+        return self._get()()
+
+    async def __aenter__(self):
+        return await self._get().__aenter__()
+
+    async def __aexit__(self, *args):
+        return await self._get().__aexit__(*args)
+
+
+async_session_factory = _LazySessionFactory()
+
+
+async def get_db():
+    """
+    FastAPI dependency that yields an async DB session.
+
+    Usage in route:
+        @router.get("/stats")
+        async def stats(session: AsyncSession = Depends(get_db)):
+            ...
+
+    Teaching note: `yield` makes this a generator dependency. FastAPI
+    handles closing the session after the response is sent.
+    """
+    async with async_session_factory() as session:
+        try:
+            yield session
+        finally:
+            await session.close()
 
 
 async def check_db_connection() -> bool:
@@ -94,3 +146,23 @@ async def check_db_connection() -> bool:
         return True
     except Exception:
         return False
+
+
+# ── FastAPI lifecycle helpers ──
+
+async def init_db() -> None:
+    """Called on FastAPI startup — verifies DB connectivity."""
+    if not await check_db_connection():
+        import logging
+        logging.getLogger(__name__).warning("Database not reachable on startup")
+    else:
+        import logging
+        logging.getLogger(__name__).info("Database connected")
+
+
+async def close_db() -> None:
+    """Called on FastAPI shutdown — disposes the engine and connection pool."""
+    global _engine
+    if _engine is not None:
+        await _engine.dispose()
+        _engine = None

@@ -296,6 +296,21 @@ class CampaignService:
 
         return candidates
 
+    def is_campaign_active(self, campaign: Campaign) -> bool:
+        """
+        Check whether a campaign is in an active state — i.e. it should
+        still generate candidates. DRAFT, SCHEDULED, and RUNNING are
+        active; PAUSED, COMPLETED, and CANCELLED are not.
+
+        TEACHING NOTE: The campaign worker calls this before building
+        candidates so a paused or completed campaign is a no-op.
+        """
+        return campaign.status in (
+            CampaignStatus.DRAFT,
+            CampaignStatus.SCHEDULED,
+            CampaignStatus.RUNNING,
+        )
+
     async def complete_campaign(
         self,
         session: AsyncSession,

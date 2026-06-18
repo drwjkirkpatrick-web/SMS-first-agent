@@ -74,9 +74,15 @@ async def lifespan(app: FastAPI):
         await init_db()
 
     # Verify Redis is reachable — Celery needs it for task queue
+    # We warn but don't crash — the app can still serve health checks
+    # even if Redis is temporarily down (Celery workers will retry).
     redis_ok = await ping_redis()
     if not redis_ok:
-        raise RuntimeError("Redis is unreachable — Celery workers cannot function")
+        import logging
+        logging.getLogger(__name__).warning(
+            "Redis is unreachable on startup — Celery workers may fail. "
+            "Check REDIS_URL in .env"
+        )
 
     yield  # application runs here
 
@@ -128,17 +134,18 @@ async def health_check():
     Docker/k8s uses this to determine if the container should receive
     traffic or be restarted.
     """
-    from infra.database import async_engine
+    from infra.database import check_db_connection, get_engine
     from sqlalchemy import text
 
     try:
-        async with async_engine.connect() as conn:
-            await conn.execute(text("SELECT 1"))
-        db_status = "connected"
+        db_ok = await check_db_connection()
+        db_status = "connected" if db_ok else "disconnected"
     except Exception:
         db_status = "disconnected"
 
-    redis_status = "connected" if await ping_redis() else "disconnected"
+    from infra.redis_pool import check_redis_connection
+    redis_ok = await check_redis_connection()
+    redis_status = "connected" if redis_ok else "disconnected"
 
     # Overall health: both DB and Redis must be connected
     overall = "healthy" if db_status == "connected" and redis_status == "connected" else "unhealthy"
