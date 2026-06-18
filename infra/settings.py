@@ -163,9 +163,9 @@ class Settings(BaseSettings):
     )
 
     # == Admin Dashboard ==
-    admin_token_hash: str = Field(
+    admin_token: str = Field(
         default="",
-        description="bcrypt hash of the business owner dashboard token",
+        description="Token for admin dashboard authentication (X-Admin-Token header)",
     )
 
     # == Operational (inherited + adapted) ==

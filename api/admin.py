@@ -12,7 +12,7 @@ Adapted from the original tuition agent's admin.py:
   - Hardship → Credit Terms (renamed)
 
 New endpoints (Kenya-specific):
-  - Dashboard stats with SMS spend in KES (from OutboundMessage.price)
+  - Dashboard stats with SMS spend in KES (from OutboundMessage.price_kes)
   - Campaign management: create/list/pause promotional campaigns
   - Customer search (by phone, name, or loyalty tier)
   - Business policy update (quiet hours, business hours, frequency caps)
@@ -27,7 +27,7 @@ Teaching notes:
   - Write endpoints (POST/PUT) should be restricted (TODO: role-based auth).
   - All PII (phone numbers, names) is masked before returning to the
     dashboard to comply with Kenya Data Protection Act (2019).
-  - SMS spend tracking: OutboundMessage.price is in KES for Africa's Talking
+  - SMS spend tracking: OutboundMessage.price_kes is in KES for Africa's Talking
     and USD for Twilio. The stats endpoint normalizes to KES.
 
 Kenya-specific considerations:
@@ -112,7 +112,7 @@ async def dashboard_stats(
 
     Returns:
       - messages: counts by status (pending, sent, delivered, failed, etc.)
-      - sms_spend_kes: total SMS cost in KES (sum of OutboundMessage.price)
+      - sms_spend_kes: total SMS cost in KES (sum of OutboundMessage.price_kes)
       - active_campaigns: count of campaigns currently running
       - customers: total customer count
       - transactions: counts by status
@@ -141,7 +141,7 @@ async def dashboard_stats(
     # For now, we assume all are KES (Africa's Talking primary).
     # TODO: handle Twilio USD prices with currency conversion.
     spend_result = await session.execute(
-        select(func.coalesce(func.sum(OutboundMessage.price), 0.0)).where(
+        select(func.coalesce(func.sum(OutboundMessage.price_kes), 0.0)).where(
             OutboundMessage.business_id == business_id,
             OutboundMessage.status.in_([
                 MessageStatus.SENT,

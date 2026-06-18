@@ -5,22 +5,24 @@ alembic/env.py — Alembic migration environment
 Alembic needs to know about our Base class (to discover tables) and
 our database URL (to connect for migrations).
 
+Our app uses async SQLAlchemy (asyncpg), but Alembic runs migrations
+synchronously. We swap the driver from asyncpg → psycopg2 for the
+migration connection. This is the standard pattern for async SQLAlchemy
++ Alembic.
+
 Teaching notes:
   - `target_metadata` tells Alembic what tables to compare against
     the database when running `alembic revision --autogenerate`.
-  - We import ALL models here so Alembic sees them. If you add a new
-    model and forget to import it here, `autogenerate` won't detect it.
-  - `run_migrations_offline()` generates SQL without a DB connection
-    (useful for CI pipelines that just check the SQL).
+  - We import ALL models here so Alembic sees them.
+  - `run_migrations_offline()` generates SQL without a DB connection.
+  - We convert the URL: postgresql+asyncpg:// → postgresql+psycopg2://
 ═══════════════════════════════════════════════════
 """
 
-import asyncio
 from logging.config import fileConfig
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
-from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from infra.database import Base
 from infra.settings import get_settings
@@ -35,9 +37,12 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-# Set the database URL from our settings
+# Get the database URL from settings and convert to sync driver for Alembic
 settings = get_settings()
-config.set_main_option("sqlalchemy.url", settings.database_url.get_secret_value())
+db_url = settings.database_url.get_secret_value()
+# Swap asyncpg → psycopg2 for synchronous migration execution
+sync_url = db_url.replace("postgresql+asyncpg://", "postgresql+psycopg2://")
+config.set_main_option("sqlalchemy.url", sync_url)
 
 
 def run_migrations_offline() -> None:

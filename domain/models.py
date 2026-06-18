@@ -338,7 +338,7 @@ class Customer(Base):
     # ── NEW: Preferred message language ──
     # Drives template selection (English vs Swahili). See templates.py.
     preferred_language: Mapped[Language] = mapped_column(
-        Enum(Language, name="language"),
+        Enum(Language, name="language", values_callable=lambda x: [e.value for e in x]),
         default=Language.EN,
         nullable=False,
     )
@@ -479,7 +479,7 @@ class Transaction(Base):
     transaction_number: Mapped[str] = mapped_column(String(64), nullable=False)
     # What kind of transaction (drives reminder logic).
     type: Mapped[TransactionType] = mapped_column(
-        Enum(TransactionType, name="transaction_type"),
+        Enum(TransactionType, name="transaction_type", values_callable=lambda x: [e.value for e in x]),
         default=TransactionType.SALE,
         nullable=False,
     )
@@ -491,7 +491,7 @@ class Transaction(Base):
     # For SALE type, due_date may be NULL (paid immediately).
     due_date: Mapped[Optional[Date]] = mapped_column(Date, nullable=True, index=True)
     status: Mapped[TransactionStatus] = mapped_column(
-        Enum(TransactionStatus, name="transaction_status"),
+        Enum(TransactionStatus, name="transaction_status", values_callable=lambda x: [e.value for e in x]),
         default=TransactionStatus.PENDING,
         nullable=False,
     )
@@ -548,7 +548,7 @@ class Payment(Base):
     )
     amount: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
     status: Mapped[PaymentStatus] = mapped_column(
-        Enum(PaymentStatus, name="payment_status"),
+        Enum(PaymentStatus, name="payment_status", values_callable=lambda x: [e.value for e in x]),
         default=PaymentStatus.PENDING,
         nullable=False,
     )
@@ -736,7 +736,7 @@ class Campaign(Base):
     template_name: Mapped[str] = mapped_column(String(100), nullable=False)
 
     status: Mapped[CampaignStatus] = mapped_column(
-        Enum(CampaignStatus, name="campaign_status"),
+        Enum(CampaignStatus, name="campaign_status", values_callable=lambda x: [e.value for e in x]),
         default=CampaignStatus.DRAFT,
         nullable=False,
     )
@@ -818,11 +818,11 @@ class OutboundMessage(Base):
     message_key: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
 
     reminder_type: Mapped[ReminderType] = mapped_column(
-        Enum(ReminderType, name="reminder_type"),
+        Enum(ReminderType, name="reminder_type", values_callable=lambda x: [e.value for e in x]),
         nullable=False,
     )
     status: Mapped[MessageStatus] = mapped_column(
-        Enum(MessageStatus, name="message_status"),
+        Enum(MessageStatus, name="message_status", values_callable=lambda x: [e.value for e in x]),
         default=MessageStatus.PENDING,
         nullable=False,
     )
@@ -850,6 +850,9 @@ class OutboundMessage(Base):
     failed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     suppression_reason: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+
+    # SMS cost tracking (KES) — populated by send worker after provider response
+    price_kes: Mapped[Optional[float]] = mapped_column(Numeric(8, 2), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -953,7 +956,7 @@ class InboundMessage(Base):
 
     # Parsed intent
     intent: Mapped[InboundIntent] = mapped_column(
-        Enum(InboundIntent, name="inbound_intent"),
+        Enum(InboundIntent, name="inbound_intent", values_callable=lambda x: [e.value for e in x]),
         default=InboundIntent.UNKNOWN,
         nullable=False,
     )
@@ -1001,7 +1004,7 @@ class CreditTermsRequest(Base):
     )
 
     status: Mapped[CreditTermsStatus] = mapped_column(
-        Enum(CreditTermsStatus, name="credit_terms_status"),
+        Enum(CreditTermsStatus, name="credit_terms_status", values_callable=lambda x: [e.value for e in x]),
         default=CreditTermsStatus.REQUESTED,
         nullable=False,
     )
@@ -1050,7 +1053,7 @@ class AuditEvent(Base):
     )
 
     event_type: Mapped[AuditEventType] = mapped_column(
-        Enum(AuditEventType, name="audit_event_type"),
+        Enum(AuditEventType, name="audit_event_type", values_callable=lambda x: [e.value for e in x]),
         nullable=False,
         index=True,
     )
