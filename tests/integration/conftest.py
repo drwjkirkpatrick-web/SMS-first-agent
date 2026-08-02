@@ -27,6 +27,10 @@ test-time module cache — production behaviour is unchanged.
 import pytest
 
 import infra.database
+from infra.database import Base
+
+# Import all models so Base.metadata knows about every table.
+import domain.models  # noqa: F401
 
 
 @pytest.fixture(autouse=True)
@@ -43,3 +47,37 @@ def reset_engine():
     # Clear again after the test so the next test doesn't reuse a stale engine.
     infra.database._engine = None
     infra.database._async_session_factory = None
+
+
+@pytest.fixture(autouse=True)
+def create_tables():
+    """Create all tables in the test database before each test.
+
+    Uses a SEPARATE engine (not the module-level one) so we don't
+    pollute the event-loop-bound engine that the test will use.
+    The test's own event loop builds its engine via get_engine()
+    after reset_engine cleared the cache.
+    """
+    import asyncio
+    import os
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    db_url = os.environ.get(
+        "DATABASE_URL", "postgresql+asyncpg://localhost/sms_first_test"
+    )
+
+    async def _create():
+        engine = create_async_engine(db_url, echo=False)
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        await engine.dispose()
+
+    async def _drop():
+        engine = create_async_engine(db_url, echo=False)
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
+        await engine.dispose()
+
+    asyncio.run(_create())
+    yield
+    asyncio.run(_drop())
