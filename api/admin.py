@@ -64,6 +64,7 @@ from domain.models import (
 from domain.masking import mask_name, mask_phone
 from infra.database import get_db
 from infra.settings import get_settings
+from infra.rate_limiter import rate_limit_dependency
 
 router = APIRouter()
 
@@ -102,7 +103,7 @@ async def verify_admin_token(x_admin_token: Optional[str] = Header(None)) -> Non
 
 # ── Dashboard Stats ─────────────────────────────────────────────
 
-@router.get("/dashboard/stats", dependencies=[Depends(verify_admin_token)])
+@router.get("/dashboard/stats", dependencies=[Depends(verify_admin_token), Depends(rate_limit_dependency)])
 async def dashboard_stats(
     business_id: int = 1,
     session: AsyncSession = Depends(get_db),
@@ -125,16 +126,21 @@ async def dashboard_stats(
       - High "failed" → provider issue or invalid numbers
       - High "unknown_delivery" → need reconciliation
     """
-    # Message counts by status
-    msg_counts = {}
+    # E5: Single GROUP BY query for message counts (instead of one
+    # query per MessageStatus enum value — 7+ queries reduced to 1).
+    msg_grouped = await session.execute(
+        select(
+            OutboundMessage.status,
+            func.count(OutboundMessage.id),
+        ).where(
+            OutboundMessage.business_id == business_id,
+        ).group_by(OutboundMessage.status)
+    )
+    msg_counts = {row[0]: row[1] for row in msg_grouped}
+    # Ensure all statuses are present (even if count is 0)
     for s in MessageStatus:
-        count_result = await session.execute(
-            select(func.count(OutboundMessage.id)).where(
-                OutboundMessage.business_id == business_id,
-                OutboundMessage.status == s,
-            )
-        )
-        msg_counts[s.value] = count_result.scalar()
+        if s.value not in msg_counts:
+            msg_counts[s.value] = 0
 
     # SMS spend in KES — sum of price for delivered/sent messages
     # Note: price may be in different currencies depending on provider.

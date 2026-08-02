@@ -88,6 +88,7 @@ celery_app = Celery(
         "workers.inbound",
         "workers.campaigns",
         "workers.mpesa_reconciliation",
+        "workers.maintenance",
     ],
 )
 
@@ -129,6 +130,19 @@ celery_app.conf.update(
     # On Raspberry Pi (4GB RAM), buffering many tasks can exhaust memory.
     # This setting ensures predictable memory usage per worker.
     worker_prefetch_multiplier=1,
+    # ── E10: Task time limits (prevent hung API calls from blocking workers) ──
+    # Hard kill after 5 minutes. A hung Africa's Talking or M-Pesa API
+    # call should never block a worker indefinitely.
+    task_time_limit=300,
+    # Soft timeout after 4 minutes — raises SoftTimeLimitExceeded so the
+    # task can clean up (release locks, log errors) before the hard kill.
+    task_soft_time_limit=240,
+    # ── R3: Graceful shutdown ──
+    # When Docker stops a worker (SIGTERM), finish the current task
+    # before exiting. Combined with worker_prefetch_multiplier=1, only
+    # one task is in-flight at a time, so shutdown is clean.
+    worker_hijack_root_logger=True,
+    task_reject_on_worker_lost=True,
 )
 
 # ── Beat Schedule ─────────────────────────────────────────────────
@@ -194,6 +208,23 @@ celery_app.conf.beat_schedule = {
     "connectivity-check": {
         "task": "workers.sends.check_connectivity",
         "schedule": 30.0,  # every 30 seconds
+    },
+    # ── v2: Maintenance tasks ──
+    # R6: Data retention purge (daily at 3 AM EAT)
+    "retention-purge": {
+        "task": "workers.maintenance.run_retention_purge",
+        "schedule": crontab(hour=3, minute=0),  # 3:00 AM EAT
+    },
+    # R9: Failure threshold alert check (every 15 minutes)
+    "alert-check": {
+        "task": "workers.maintenance.run_alert_check",
+        "schedule": crontab(minute="*/15"),  # every 15 minutes
+        "kwargs": {"business_id": 1},
+    },
+    # R10: Automated database backup (daily at 2 AM EAT)
+    "backup-job": {
+        "task": "workers.maintenance.run_backup",
+        "schedule": crontab(hour=2, minute=0),  # 2:00 AM EAT
     },
 }
 

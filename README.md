@@ -63,6 +63,48 @@ POS/Excel/CSV → FastAPI API → PostgreSQL → Africa's Talking → Customer P
 - **Quiet Hours** — no SMS during configured hours
 - **Soft Deletes** — data retention controls
 
+### v2 Improvements (Efficiency, Security, Resilience)
+
+Ported from the SMS-Tuition-Agent v2 build — 30 improvements across 3 categories:
+
+#### Efficiency (10)
+- **E1** Bulk contact loading in reminder worker
+- **E2** Accurate insert/duplicate counting via `RETURNING` clause
+- **E3** TemplateRenderer used in send worker (no hardcoded strings)
+- **E4** Delivery query by provider message ID (not body scan)
+- **E5** Single `GROUP BY` query for dashboard stats
+- **E6** Redis-cached business reminder policy (5-min TTL)
+- **E7** Configurable DB connection pool sizing (`DATABASE_POOL_SIZE`, `DATABASE_MAX_OVERFLOW`)
+- **E8** Batch outbox polling with JOIN for contact phone
+- **E9** Index optimization (partial + composite indexes via Alembic migration 002)
+- **E10** Celery task time limits (300s hard, 240s soft)
+
+#### Security (10)
+- **S1** Redis-backed rate limiting on admin endpoints (60 req/min per IP)
+- **S2** Admin token enforcement at startup in production
+- **S3** Twilio webhook signature — full algorithm
+- **S4** Input sanitization for inbound SMS bodies
+- **S5** Dynamic `business_id` resolution (no hardcoded defaults)
+- **S6** Configurable CORS allowed origins
+- **S7** Transactional audit logging (optional session parameter)
+- **S8** TLS enforcement via `docker-compose.prod.yml`
+- **S9** Phone number validation on inbound
+- **S10** PII masking in logs via `PIIMaskingFilter`
+
+#### Resilience (10)
+- **R1** Persistent event loop optimization for Celery tasks
+- **R2** Worker health check script (`scripts/health_check.py`)
+- **R3** Graceful shutdown (`task_reject_on_worker_lost`, `worker_hijack_root_logger`)
+- **R4** Dead letter queue for poison messages (`domain/dead_letter.py`)
+- **R5** Quiet hours enforcement in send worker (`domain/quiet_hours.py`)
+- **R6** Data retention purge job (`domain/retention.py`, daily at 3 AM EAT)
+- **R7** Circuit breaker for external API calls (`infra/circuit_breaker.py`)
+- **R8** Reconciliation max-age cutoff (72h ceiling)
+- **R9** Failure threshold alerting (`domain/alerting.py`, every 15 min)
+- **R10** Automated encrypted database backup (`infra/backup.py`, daily at 2 AM EAT)
+
+See [docs/30-improvements.md](docs/30-improvements.md) for the full specification.
+
 ### New for Kenyan Small Business
 
 - **Africa's Talking SMS Adapter** — local SMS routing, KES billing, lower cost
@@ -116,17 +158,20 @@ Verify: `curl http://localhost:8000/health`
 ```
 SMS-first-agent/
 ├── prd/                    # Product requirements
-├── docs/                   # Kenya DPA compliance, deployment guides
+├── docs/                   # 30-improvements spec, Kenya DPA compliance, deployment guides
 ├── design/                 # Architecture decisions (duplicate prevention, M-Pesa flow)
-├── api/                    # FastAPI routers (webhooks, admin)
-├── workers/                # Celery tasks (reminders, sends, reconciliation, campaigns)
-├── domain/                 # Business logic (models, services, templates)
+├── api/                    # FastAPI routers (webhooks, admin with rate limiting)
+├── workers/                # Celery tasks (reminders, sends, reconciliation, campaigns, maintenance)
+├── domain/                 # Business logic (models, services, templates, alerting, dead_letter, quiet_hours, retention)
 ├── adapters/               # External integrations (Africa's Talking, M-Pesa, Twilio)
-├── infra/                  # Database, Redis, settings, audit, connectivity watcher
-├── tests/                  # Unit and integration tests
-├── alembic/                # Database migrations
+├── infra/                  # Database, Redis, settings, audit, backup, circuit_breaker, rate_limiter, logging_filter
+├── tests/                  # Unit (65) and integration tests
+├── alembic/                # Database migrations (001 initial + 002 indexes + dead_letter)
 ├── deploy/                 # ARM64 deployment + solar/UPS power resilience
-└── scripts/                # CSV import, promo CLI
+├── scripts/                # CSV import, promo CLI, health_check, backup
+├── docker-compose.yml      # Development compose
+├── docker-compose.prod.yml # Production compose with TLS + backup sidecar
+└── .env.example            # All configuration variables
 ```
 
 ---

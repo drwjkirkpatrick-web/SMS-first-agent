@@ -1,0 +1,64 @@
+# SMS-First Agent — Production Docker Compose Override
+# ═══════════════════════════════════════════════════
+# S8: TLS enforcement for API in production.
+#
+# This override adds TLS certificates and runs uvicorn with SSL.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Requirements:
+#   - TLS certificates mounted at /certs/cert.pem and /certs/key.pem
+#   - TLS_DOMAIN env var set to the business domain
+# ═══════════════════════════════════════════════════
+
+services:
+  app:
+    command: >
+      uvicorn api.main:app
+      --host 0.0.0.0
+      --port 8000
+      --ssl-keyfile /certs/key.pem
+      --ssl-certfile /certs/cert.pem
+      --workers 2
+    ports:
+      - "443:8000"  # HTTPS
+    volumes:
+      - ./certs:/certs:ro
+    environment:
+      - APP_ENV=production
+    networks:
+      - sms-net
+
+  worker:
+    environment:
+      - APP_ENV=production
+    command: >
+      celery -A workers.celery_app worker
+      --loglevel=warning
+      --concurrency=2
+      -Q sends,reconciliation,reminders,inbound,campaigns,mpesa,maintenance
+
+  beat:
+    environment:
+      - APP_ENV=production
+
+  db:
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backups:/backups  # mount backup volume for pg_dump sidecar
+
+  # R10: Backup sidecar — runs nightly encrypted pg_dump
+  backup:
+    build: .
+    command: python -m scripts.backup
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./backups:/data/backups
+    restart: "no"  # run on cron schedule externally, or use a loop
+    networks:
+      - sms-net
+
+volumes:
+  pgdata:

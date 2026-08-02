@@ -26,6 +26,9 @@ twilio>=8.10.0
 # HTTP client (for M-Pesa API, connectivity checks)
 httpx>=0.25.0
 
+# Encryption (for encrypted database backups — infra/backup.py)
+cryptography>=42.0.0
+
 # Testing
 pytest>=7.4.0
 pytest-asyncio>=0.23.0

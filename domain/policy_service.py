@@ -126,22 +126,64 @@ class PolicyService:
     Load, validate, and update business reminder + SMS policies.
     """
 
+    @staticmethod
+    def _cache_key(business_id: int) -> str:
+        """
+        E6: Redis cache key for business policy.
+
+        Format: ``business:{id}:policy``
+        TTL: 5 minutes (300 seconds)
+
+        The cache is invalidated on save_policy() by deleting this key.
+        """
+        return f"business:{business_id}:policy"
+
     async def load_policy(self, business_id: int) -> ReminderPolicy:
         """
         Load policy from business record. Returns default if not set.
+
+        E6: Checks Redis cache first (5-minute TTL). Falls back to DB
+        on cache miss and populates the cache for subsequent calls.
 
         TEACHING NOTE: Returning a default (not None) means the scheduler
         always has a valid policy to work with — no None checks needed
         downstream.
         """
+        from infra.redis_pool import get_redis_client
+
+        # E6: Try Redis cache first
+        try:
+            redis = get_redis_client()
+            cached = await redis.get(self._cache_key(business_id))
+            if cached:
+                return ReminderPolicy.model_validate_json(cached)
+        except Exception:
+            # Redis might be down — fall through to DB query.
+            pass
+
+        # Cache miss (or Redis down) → load from DB
         async with async_session_factory() as session:
             from domain.models import Business
             result = await session.execute(select(Business).where(Business.id == business_id))
             business = result.scalar_one_or_none()
             if business and business.reminder_policy:
                 data = json.loads(business.reminder_policy)
-                return ReminderPolicy(**data)
-            return ReminderPolicy()
+                policy = ReminderPolicy(**data)
+            else:
+                policy = ReminderPolicy()
+
+        # E6: Populate the Redis cache for subsequent calls (5-min TTL)
+        try:
+            redis = get_redis_client()
+            await redis.set(
+                self._cache_key(business_id),
+                policy.model_dump_json(),
+                ex=300,  # 5 minutes
+            )
+        except Exception:
+            pass  # caching is a performance optimization, not critical
+
+        return policy
 
     async def save_policy(
         self,
@@ -177,6 +219,14 @@ class PolicyService:
                 }),
                 context=AuditContext(business_id=business_id, actor_type="user", actor_id=changed_by),
             )
+
+        # E6: Invalidate the Redis cache after policy update.
+        try:
+            from infra.redis_pool import get_redis_client
+            redis = get_redis_client()
+            await redis.delete(self._cache_key(business_id))
+        except Exception:
+            pass  # cache invalidation is best-effort
 
     def schedule_to_dict(self, policy: ReminderPolicy) -> dict[ReminderType, int]:
         """

@@ -55,6 +55,7 @@ async def log_audit_event(
     summary: str,
     details: Optional[str] = None,
     context: Optional[AuditContext] = None,
+    session: Optional[AsyncSession] = None,
 ) -> None:
     """
     Write an immutable audit event.
@@ -66,13 +67,22 @@ async def log_audit_event(
         summary: human-readable, PII-safe description
         details: JSON string with full details (may contain PII)
         context: audit context (actor, source, school_id)
+        session: optional AsyncSession. If provided, the audit event
+            is inserted into this session's transaction (S7: transactional
+            audit logging). If not provided, a standalone session is
+            created so the audit event commits independently of any
+            caller transaction.
+
+    S7 Teaching note: When a session is provided, the audit event
+    participates in the caller's transaction. If the caller's transaction
+    rolls back, the audit event is also rolled back — preserving causal
+    consistency. When no session is provided, we use a fresh session so
+    the audit event persists even if the caller's transaction fails
+    (tamper evidence for security incidents).
     """
     ctx = context or AuditContext()
 
-    # Use a fresh session so the audit log is committed independently
-    # of any ongoing transaction. If the caller's transaction rolls back,
-    # the audit event still persists (tamper evidence).
-    async with async_session_factory() as session:
+    async def _insert(s: AsyncSession) -> None:
         event = AuditEvent(
             school_id=ctx.school_id,
             event_type=event_type,
@@ -84,5 +94,14 @@ async def log_audit_event(
             actor_id=ctx.actor_id,
             source=ctx.source,
         )
-        session.add(event)
-        await session.commit()
+        s.add(event)
+
+    if session is not None:
+        # S7: Insert into the caller's transaction (no separate commit).
+        # The caller controls when to commit or rollback.
+        await _insert(session)
+    else:
+        # Standalone: use a fresh session and commit independently.
+        async with async_session_factory() as standalone_session:
+            await _insert(standalone_session)
+            await standalone_session.commit()

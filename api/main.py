@@ -69,6 +69,22 @@ async def lifespan(app: FastAPI):
     """
     settings = get_settings()
 
+    # S10: Install PII masking filter on the root logger.
+    # This masks phone numbers and email addresses in ALL log records
+    # before they reach any handler — including third-party library logs.
+    from infra.logging_filter import setup_pii_logging
+    setup_pii_logging()
+
+    # S2: Enforce admin token configuration in production.
+    # If running in production without ADMIN_TOKEN, refuse to start
+    # (security: admin endpoints would be unprotected).
+    if settings.app_env == "production" and not settings.admin_token:
+        raise RuntimeError(
+            "ADMIN_TOKEN is not set in production — admin endpoints "
+            "would be unprotected. Set ADMIN_TOKEN in .env or switch "
+            "to APP_ENV=development for testing."
+        )
+
     # In development mode, auto-create database tables
     if settings.app_env == "development":
         await init_db()
@@ -106,13 +122,21 @@ app = FastAPI(
 
 # ── CORS Middleware ──────────────────────────────────────────────
 #
-# Cross-Origin Resource Sharing: allows web applications from other
-# origins to call our API. In production, restrict `allow_origins`
-# to known dashboard URLs only. In development, allow all origins.
+# S6: Cross-Origin Resource Sharing with configurable allowed origins.
+# In production, restrict to known dashboard URLs only via
+# CORS_ALLOWED_ORIGINS env var (comma-separated).
+# In development, allow all origins for convenience.
+
+_settings = get_settings()
+_cors_origins = (
+    _settings.cors_allowed_origins.split(",")
+    if _settings.cors_allowed_origins
+    else ["*"]
+)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # TODO: restrict to dashboard URL in production
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
     allow_headers=["*"],

@@ -99,13 +99,19 @@ class DispatchService:
         stmt = stmt.on_conflict_do_nothing(
             index_elements=["message_key"]
         )
+        # E2: Use RETURNING to get actual inserted IDs so we can
+        # distinguish inserts from conflicts (duplicates).
+        stmt = stmt.returning(OutboundMessage.id)
         result = await session.execute(stmt)
 
-        # result.rowcount may be -1 for bulk inserts; compute logically
-        inserted = len(values)  # optimistic (actual count depends on DB)
+        # The RETURNING clause gives us the IDs of actually-inserted rows.
+        # Rows that conflicted (ON CONFLICT DO NOTHING) are NOT returned.
+        inserted_ids = result.scalars().all()
+        actual_inserted = len(inserted_ids)
+        duplicates_skipped = len(values) - actual_inserted
 
         return {
-            "inserted": len(values),
-            "duplicates_skipped": 0,  # we can't know from ON CONFLICT DO NOTHING easily
+            "inserted": actual_inserted,
+            "duplicates_skipped": duplicates_skipped,
             "suppressed": 0,
         }

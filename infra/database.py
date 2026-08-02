@@ -43,7 +43,13 @@ class Base(DeclarativeBase):
 
 
 def _build_engine():
-    """Create the async engine with settings from environment."""
+    """Create the async engine with settings from environment.
+
+    E7: Pool size and max_overflow are now configurable via
+    DATABASE_POOL_SIZE and DATABASE_MAX_OVERFLOW env vars. Workers
+    may need more connections than the API (e.g., 3 workers × 2
+    concurrency = 6 concurrent sessions).
+    """
     settings = get_settings()
     url = settings.database_url.get_secret_value()
 
@@ -57,8 +63,8 @@ def _build_engine():
     # PostgreSQL (production) — connection pooling tuned for ARM64
     return create_async_engine(
         url,
-        pool_size=5,
-        max_overflow=5,
+        pool_size=settings.database_pool_size,
+        max_overflow=settings.database_max_overflow,
         pool_pre_ping=True,       # critical for unreliable networks
         pool_recycle=300,          # recycle connections every 5 min
         echo=settings.app_env == "development",
